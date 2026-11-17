@@ -246,10 +246,10 @@ export const DEMO_LESSONS: DemoLessonCard[] = demoDefinitions.map((definition) =
   };
 });
 
-export function getDemoLessonForTopic(topic: string): Lesson {
-  const normalizedTopic = topic.toLowerCase();
+export function getDemoLessonForTopic(topic: string): Lesson | null {
+  const normalizedTopic = topic.trim().toLowerCase();
   const matchingDemo = DEMO_LESSONS.find((demo) =>
     demo.keywords.some((keyword) => normalizedTopic.includes(keyword)),
   );
-  return matchingDemo?.lesson ?? DEMO_LESSONS[0].lesson;
+  return matchingDemo?.lesson ?? null;
 }

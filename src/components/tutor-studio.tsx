@@ -34,7 +34,8 @@ import Link from "next/link";
 
 import Whiteboard from "@/components/whiteboard";
 import { DEMO_LESSONS, type DemoLessonCard } from "@/data/demo-lessons";
-import type { Lesson, WhiteboardAction } from "@/schemas/lesson.schema";
+import { scheduleActions } from "@/lib/lesson-timeline";
+import type { Lesson } from "@/schemas/lesson.schema";
 
 type LessonSource = "generated" | "cached" | "demo" | "fallback";
 
@@ -44,11 +45,6 @@ type Message = {
 };
 
 type FeedbackRating = "helpful" | "not-helpful";
-
-type ScheduledAction = {
-  atSeconds: number;
-  action: WhiteboardAction;
-};
 
 const lessonLoadingStages = [
   "Finding a clear way to explain the topic",
@@ -87,24 +83,6 @@ function getOffsetAtWordProgress(text: string, progress: number) {
   if (progress >= 1) return text.length;
   const targetIndex = Math.floor(words.length * Math.max(0, progress));
   return words[targetIndex]?.index ?? 0;
-}
-
-function scheduleActions(lesson: Lesson, durationSeconds: number): ScheduledAction[] {
-  const wordCounts = lesson.segments.map((segment) =>
-    Math.max(1, getWordCount(segment.narration)),
-  );
-  const totalWords = wordCounts.reduce((total, count) => total + count, 0);
-  let segmentStart = 0;
-
-  return lesson.segments.flatMap((segment, index) => {
-    const segmentDuration = durationSeconds * (wordCounts[index] / totalWords);
-    const scheduled = segment.visuals.map((action) => ({
-      action,
-      atSeconds: segmentStart + Math.min(segmentDuration, action.atMs / 1000),
-    }));
-    segmentStart += segmentDuration;
-    return scheduled;
-  });
 }
 
 function formatTime(seconds: number) {
@@ -280,7 +258,7 @@ export default function TutorStudio() {
       setLessonSource(source);
       const sourceNotice =
         source === "fallback"
-          ? `AI generation is unavailable, so this ready-to-play demo is about ${generatedLesson.topic}.`
+          ? `AI generation is unavailable. Showing the related ${generatedLesson.topic} demo lesson instead.`
           : source === "cached"
             ? "Loaded instantly from the lesson cache; no new AI request was needed."
             : "";

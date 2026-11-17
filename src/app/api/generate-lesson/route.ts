@@ -1,7 +1,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { generateLesson } from "@/services/lesson.service";
+import {
+  generateLesson,
+  LessonGenerationUnavailableError,
+} from "@/services/lesson.service";
 import { GroqApiError } from "@/lib/groq";
 
 const RequestSchema = z.object({
@@ -48,6 +51,16 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const detail = getSafeErrorMessage(error);
     console.error("Generate lesson error:", detail);
+
+    if (error instanceof LessonGenerationUnavailableError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "AI lesson generation is temporarily unavailable for this topic. Please try again later or choose a preloaded lesson.",
+        },
+        { status: 503 }
+      );
+    }
 
     if (error instanceof z.ZodError) {
       const issues = error.issues

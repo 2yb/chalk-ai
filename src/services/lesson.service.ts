@@ -24,6 +24,13 @@ export interface LessonGenerationResult {
   source: "generated" | "cached" | "fallback";
 }
 
+export class LessonGenerationUnavailableError extends Error {
+  constructor() {
+    super("AI lesson generation is temporarily unavailable for this topic.");
+    this.name = "LessonGenerationUnavailableError";
+  }
+}
+
 const LESSON_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHED_LESSONS = 50;
 const lessonCache = new Map<string, LessonCacheEntry>();
@@ -176,9 +183,9 @@ export async function generateLesson(
             ? "AI response was not valid JSON"
             : "AI service is unavailable",
     );
-    return {
-      lesson: LessonSchema.parse(getDemoLessonForTopic(input.topic)),
-      source: "fallback",
-    };
+    const fallbackLesson = getDemoLessonForTopic(input.topic);
+    if (!fallbackLesson) throw new LessonGenerationUnavailableError();
+
+    return { lesson: LessonSchema.parse(fallbackLesson), source: "fallback" };
   }
 }

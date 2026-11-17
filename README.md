@@ -25,9 +25,27 @@ Open the app and choose one of the preloaded lessons to explore the whiteboard a
 2. The server checks its lesson cache, then requests a structured lesson from Groq on a cache miss.
 3. The app validates lesson data and builds whiteboard actions.
 4. Browser speech synthesis narrates the lesson while the player reveals its visuals.
-5. If AI generation fails, the app clearly labels and serves a preloaded demo lesson instead.
+5. If AI generation fails, the app only serves a topic-matched preloaded demo. For an unmatched topic, it returns a clear temporary-unavailable message instead of presenting unrelated content.
 
 Browser speech synthesis does not expose a consistent audio clock across browsers. ChalkAI follows spoken word-boundary events when available and uses a pause-aware estimated clock as a fallback; both the seek bar and whiteboard use that same lesson timeline.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Learner --> UI["Next.js tutor UI"]
+  UI --> LessonAPI["POST /api/generate-lesson"]
+  LessonAPI --> Service["Lesson service"]
+  Service --> Cache["In-memory lesson cache"]
+  Service --> Groq["Groq API"]
+  Service --> Schema["Zod validation"]
+  Service --> Fallback["Topic-matched demo fallback"]
+  Schema --> Visuals["Whiteboard action builder"]
+  Visuals --> UI
+  UI --> Speech["Browser speech synthesis"]
+  UI --> FollowUp["POST /api/follow-up"]
+  FollowUp --> Groq
+```
 
 ## Technology
 
@@ -76,9 +94,9 @@ The browser's built-in speech synthesis handles narration and needs no API crede
 
 ## Demo lessons and caching
 
-The welcome panel includes ready-to-play lessons about the water cycle, black holes, and flight. These preloaded lessons require no AI request.
+The welcome panel includes ready-to-play lessons about the water cycle, black holes, and flight. These preloaded lessons require no AI request. If live generation fails, a topic-matched demo can be served and is labeled as a fallback. If no demo matches, the API returns a temporary-unavailable error rather than teaching an unrelated topic.
 
-Successful AI-generated lessons are cached in server memory for 10 minutes, keyed by normalized topic and difficulty, with a maximum of 50 entries. The player identifies cache hits; repeat the same topic and level to demonstrate one. AI failures, invalid responses, missing configuration, and connection timeouts trigger a labeled demo fallback.
+Successful AI-generated lessons are cached in server memory for 10 minutes, keyed by normalized topic and difficulty, with a maximum of 50 entries. The player identifies cache hits; repeat the same topic and level to demonstrate one. AI failures, invalid responses, missing configuration, and connection timeouts trigger a labeled fallback only when a topic-matched preloaded lesson exists. Otherwise, the API reports that generation is temporarily unavailable and suggests trying again or choosing a preloaded lesson.
 
 The cache is best-effort and process-local: it clears when the server restarts and is not shared between serverless instances. Use a shared cache such as Redis if cross-instance persistence is needed in production. Lesson feedback controls are currently session-only and are not submitted to a backend.
 
@@ -93,9 +111,12 @@ For any host, keep the Groq key server-side, verify the deployed URL, and rememb
 ## Quality checks
 
 ```bash
+npm test
 npm run lint
 npm run build
 ```
+
+The automated tests cover lesson schema validation, timeline scheduling, and AI-unavailable fallback selection. Voice timing still depends on browser speech synthesis; validate playback on the target desktop and mobile browsers before release.
 
 ## Project structure
 
