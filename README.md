@@ -1,73 +1,228 @@
 # ChalkAI
 
-### AI-powered interactive whiteboard tutor
+**AI-powered visual lessons with an interactive whiteboard**
 
-Turn a question into a short, visual lesson. ChalkAI explains a topic with an AI-generated lesson, browser voice narration, and whiteboard sketches that appear as the lesson plays. Learners can control playback, draw on the board, and ask follow-up questions.
+ChalkAI turns a topic into a concise, narrated lesson. A learner chooses a subject and difficulty, receives a structured six-segment lesson, watches timed SVG sketches appear on the whiteboard, and can ask the tutor follow-up questions.
 
-## Try a lesson
+> The app uses Groq for lesson and follow-up generation, Zod for server-side validation, and the browser Web Speech API for narration. No audio generation or text-to-speech API key is required.
 
-Open the app and choose one of the preloaded lessons to explore the whiteboard and narration immediately. Demo lessons work without an AI key. Enter any other topic to generate a personalized lesson with Groq.
+---
 
-## Features
+## Highlights
 
-- Topic-based lessons at beginner, intermediate, or advanced level
-- Groq-powered lesson generation and follow-up answers
-- Browser speech synthesis for narration; no separate text-to-speech key required
-- Seekable playback with pause, resume, and restart controls
-- SVG whiteboard actions timed to narration, plus freehand drawing tools
-- Preloaded lessons available as instant demos and AI-generation fallbacks
-- Light and dark themes, responsive layouts, and lesson feedback controls
-- In-memory cache for repeated topic-and-level requests
+- Generate structured lessons from a topic and difficulty level
+- Narrate lessons with browser-native speech synthesis
+- Reveal timed SVG diagrams and text cues on an interactive whiteboard
+- Pause, resume, restart, and seek lesson playback
+- Draw directly on the whiteboard
+- Ask follow-up questions in the context of the current lesson
+- Play preloaded water cycle, black hole, and flight demos without an API key
+- Cache recent AI lessons in memory for faster repeat playback
+- Switch between light and dark themes
 
-## How it works
+---
 
-1. The learner submits a topic and difficulty.
-2. The server checks its lesson cache, then requests a structured lesson from Groq on a cache miss.
-3. The app validates lesson data and builds whiteboard actions.
-4. Browser speech synthesis narrates the lesson while the player reveals its visuals.
-5. If AI generation fails, the app only serves a topic-matched preloaded demo. For an unmatched topic, it returns a clear temporary-unavailable message instead of presenting unrelated content.
-
-Browser speech synthesis does not expose a consistent audio clock across browsers. ChalkAI follows spoken word-boundary events when available and uses a pause-aware estimated clock as a fallback; both the seek bar and whiteboard use that same lesson timeline.
-
-## Architecture
+## How It Works
 
 ```mermaid
 flowchart LR
-  Learner --> UI["Next.js tutor UI"]
-  UI --> LessonAPI["POST /api/generate-lesson"]
-  LessonAPI --> Service["Lesson service"]
-  Service --> Cache["In-memory lesson cache"]
-  Service --> Groq["Groq API"]
-  Service --> Schema["Zod validation"]
-  Service --> Fallback["Topic-matched demo fallback"]
-  Schema --> Visuals["Whiteboard action builder"]
-  Visuals --> UI
-  UI --> Speech["Browser speech synthesis"]
-  UI --> FollowUp["POST /api/follow-up"]
-  FollowUp --> Groq
+    User([Learner]) --> Studio["Tutor Studio<br/>Next.js / React"]
+
+    Studio -->|Topic + difficulty| LessonAPI["POST /api/generate-lesson"]
+    LessonAPI --> LessonService["Lesson Service"]
+
+    LessonService --> Cache{"Process-local cache?<br/>10 minutes / 50 lessons"}
+    Cache -->|Hit| Result["Validated Lesson"]
+    Cache -->|Miss| Groq["Groq Chat Completions"]
+    Groq -->|JSON| Validation["Zod Schema"]
+    Validation -->|Valid| Visuals["Build SVG Actions"]
+    Visuals --> Result
+
+    Validation -->|Invalid or unavailable| Demo{"Topic-matched<br/>demo exists?"}
+    Demo -->|Yes| Fallback["Labeled Demo Fallback"]
+    Demo -->|No| Unavailable["503 Unavailable"]
+
+    Result --> Studio
+    Fallback --> Studio
+    Studio --> Timeline["Pause-aware Timeline"]
+    Timeline --> Speech["Web Speech API"]
+    Timeline --> Board["Animated Whiteboard"]
+
+    Studio -->|Lesson context + question| FollowUpAPI["POST /api/follow-up"]
+    FollowUpAPI --> Groq
+    Groq --> Answer["Tutor Answer"]
+    Answer --> Studio
 ```
 
-## Technology
+### Lesson Generation Flow
 
-- Next.js 16 App Router, React, and TypeScript
-- Groq chat completions API for lesson and follow-up generation
-- Zod for request and lesson validation
-- Browser Web Speech API for narration
-- SVG and CSS for the interactive whiteboard and responsive interface
+```mermaid
+sequenceDiagram
+    actor Learner
+    participant UI as Tutor Studio
+    participant API as Generate-Lesson API
+    participant Service as Lesson Service
+    participant Groq as Groq API
+    participant Cache as In-Memory Cache
+    participant Demo as Demo Lessons
 
-## Run locally
+    Learner->>UI: Enter topic and difficulty
+    UI->>API: POST topic + difficulty
+    API->>Service: Generate validated lesson
+    Service->>Cache: Lookup normalized topic + level
 
-Requirements: Node.js 20 or later and npm.
+    alt Cache hit
+        Cache-->>Service: Cached lesson
+        Service-->>API: source = cached
+    else Cache miss
+        Service->>Groq: Request JSON lesson
+        Groq-->>Service: Six lesson segments
+        Service->>Service: Parse and validate with Zod
+        Service->>Service: Convert segment cues to SVG actions
+        Service->>Cache: Store for 10 minutes
+        Service-->>API: source = generated
+    end
+
+    opt AI response is invalid or unavailable
+        Service->>Demo: Find topic-matched demo
+        alt Demo found
+            Demo-->>API: source = fallback
+        else No demo found
+            API-->>UI: 503 temporarily unavailable
+        end
+    end
+
+    API-->>UI: Lesson and source
+    UI-->>Learner: Render lesson and playback controls
+```
+
+### Playback and Follow-Up Flow
+
+```mermaid
+sequenceDiagram
+    actor Learner
+    participant UI as Tutor Studio
+    participant Timeline as Lesson Timeline
+    participant Speech as Browser Speech
+    participant Board as Whiteboard
+    participant API as Follow-Up API
+    participant Groq as Groq API
+
+    Learner->>UI: Start playback
+    UI->>Timeline: Schedule actions by narration word count
+    UI->>Speech: Speak lesson segments
+    loop During playback
+        Speech-->>UI: Boundaries and completion events
+        UI->>Timeline: Advance or seek current time
+        Timeline->>Board: Reveal actions due at current time
+    end
+    Learner->>UI: Pause or seek
+    UI->>Speech: Pause, resume, or restart at position
+
+    Learner->>UI: Ask a follow-up
+    UI->>API: Topic, lesson context, and conversation
+    API->>Groq: Generate contextual tutor answer
+    Groq-->>API: Answer
+    API-->>UI: Answer
+    UI-->>Learner: Render answer in chat
+```
+
+---
+
+## Architecture
+
+| Area | Responsibility |
+| --- | --- |
+| `src/app/page.tsx` | Hosts the client-side `TutorStudio` experience |
+| `src/components/tutor-studio.tsx` | Topic generation, chat, playback, seeking, feedback, and theme state |
+| `src/components/whiteboard.tsx` | SVG lesson rendering and freehand drawing tools |
+| `src/app/api/generate-lesson/route.ts` | Validates lesson requests and maps service failures to API responses |
+| `src/app/api/follow-up/route.ts` | Validates chat context and requests contextual tutor answers |
+| `src/services/lesson.service.ts` | Cache, Groq generation/retries, validation, demos, and fallback selection |
+| `src/lib/groq.ts` | Groq HTTP client, JSON mode, model selection, and API error handling |
+| `src/lib/lesson-visuals.ts` | Converts generated visual cues into whiteboard actions |
+| `src/lib/lesson-timeline.ts` | Proportionally schedules whiteboard actions across narration |
+| `src/schemas/lesson.schema.ts` | Runtime Zod schemas and visual-coordinate validation |
+| `src/data/demo-lessons.ts` | Preloaded lessons and topic-matched fallback content |
+
+### Component Model
+
+```mermaid
+flowchart TB
+    subgraph Client["Browser"]
+        Page["App Page"]
+        Studio["Tutor Studio"]
+        Board["Whiteboard"]
+        Speech["Web Speech API"]
+        Theme["Local Theme Preference"]
+    end
+
+    subgraph Server["Next.js Server"]
+        Generate["Generate-Lesson Route"]
+        FollowUp["Follow-Up Route"]
+        Service["Lesson Service"]
+        GroqClient["Groq Client"]
+        Cache["Lesson Cache"]
+        Schemas["Zod Schemas"]
+        VisualBuilder["Visual Action Builder"]
+    end
+
+    External(["Groq API"])
+
+    Page --> Studio
+    Studio --> Board
+    Studio --> Speech
+    Studio --> Theme
+    Studio --> Generate
+    Studio --> FollowUp
+    Generate --> Service
+    FollowUp --> GroqClient
+    Service --> Cache
+    Service --> GroqClient
+    Service --> Schemas
+    Service --> VisualBuilder
+    GroqClient --> External
+```
+
+---
+
+## Tech Stack
+
+- **Next.js 16 App Router**
+- **React 19**
+- **TypeScript**
+- **Groq Chat Completions API**
+- **Zod**
+- **Web Speech API**
+- **SVG and CSS**
+- **Vitest**
+- **ESLint**
+
+---
+
+## Run Locally
+
+### Requirements
+
+- Node.js 20 or later
+- npm
+- A Groq API key for live lesson and follow-up generation
+
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-Copy the example environment file and add a Groq API key:
+### 2. Configure environment variables
+
+Copy the example environment file:
 
 ```powershell
 Copy-Item .env.example .env.local
 ```
+
+Set the Groq credentials:
 
 ```env
 GROQ_API_KEY=your_groq_api_key
@@ -75,40 +230,24 @@ GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=openai/gpt-oss-20b
 ```
 
-Start the development server:
+| Variable | Required | Description |
+| --- | --- | --- |
+| `GROQ_API_KEY` | For AI features | Server-side Groq API key. Never expose it through `NEXT_PUBLIC_*`. |
+| `GROQ_MODEL` | No | Groq model ID. Defaults to `openai/gpt-oss-20b`. |
+
+### 3. Start the app
 
 ```bash
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000). Preloaded demos work without `GROQ_API_KEY`; live generation and follow-up answers require it.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Environment variables
+Preloaded demos work without `GROQ_API_KEY`. Live lesson generation and follow-up answers require it.
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `GROQ_API_KEY` | For AI features | Server-side Groq API key. Never expose it through a `NEXT_PUBLIC_*` variable. |
-| `GROQ_MODEL` | No | Groq model ID; defaults to `openai/gpt-oss-20b`. |
+---
 
-The browser's built-in speech synthesis handles narration and needs no API credential. Keep `.env.local` private; `.gitignore` excludes local environment files.
-
-## Demo lessons and caching
-
-The welcome panel includes ready-to-play lessons about the water cycle, black holes, and flight. These preloaded lessons require no AI request. If live generation fails, a topic-matched demo can be served and is labeled as a fallback. If no demo matches, the API returns a temporary-unavailable error rather than teaching an unrelated topic.
-
-Successful AI-generated lessons are cached in server memory for 10 minutes, keyed by normalized topic and difficulty, with a maximum of 50 entries. The player identifies cache hits; repeat the same topic and level to demonstrate one. AI failures, invalid responses, missing configuration, and connection timeouts trigger a labeled fallback only when a topic-matched preloaded lesson exists. Otherwise, the API reports that generation is temporarily unavailable and suggests trying again or choosing a preloaded lesson.
-
-The cache is best-effort and process-local: it clears when the server restarts and is not shared between serverless instances. Use a shared cache such as Redis if cross-instance persistence is needed in production. Lesson feedback controls are currently session-only and are not submitted to a backend.
-
-## Deploy
-
-**Vercel (recommended):** Import the GitHub repository; Vercel detects Next.js and builds it automatically. Add `GROQ_API_KEY` and, optionally, `GROQ_MODEL` under the project’s Environment Variables, then deploy.
-
-**Render or Railway:** Create a Node.js web service from the repository. Use Node.js 20+, run `npm ci` to install dependencies, `npm run build` to build, and `npm run start` to serve the app. Add the same environment variables in the provider’s service settings.
-
-For any host, keep the Groq key server-side, verify the deployed URL, and remember that free-plan Groq rate limits still apply. The in-memory cache may not be shared across serverless instances. Browser narration uses voices available on the learner’s device.
-
-## Quality checks
+## Quality Checks
 
 ```bash
 npm test
@@ -116,17 +255,52 @@ npm run lint
 npm run build
 ```
 
-The automated tests cover lesson schema validation, timeline scheduling, and AI-unavailable fallback selection. Voice timing still depends on browser speech synthesis; validate playback on the target desktop and mobile browsers before release.
+The automated tests cover lesson schemas, timeline scheduling, and fallback behavior. Because browser speech timing and available voices differ by device, also validate playback in the target desktop and mobile browsers.
 
-## Project structure
+---
 
-- `src/app/page.tsx` — studio entry page
-- `src/components/tutor-studio.tsx` — chat, lesson generation, and playback controls
-- `src/components/whiteboard.tsx` — animated lesson visuals and drawing tools
-- `src/data/demo-lessons.ts` — preloaded lessons and fallback content
-- `src/lib/lesson-visuals.ts` — shared lesson-to-whiteboard visual generation
-- `src/lib/groq.ts` — server-side Groq API client
-- `src/services/lesson.service.ts` — lesson generation, cache, and fallback selection
-- `src/app/api/generate-lesson/route.ts` — lesson generation endpoint
-- `src/app/api/follow-up/route.ts` — follow-up tutor endpoint
-- `src/schemas/lesson.schema.ts` — validated lesson and whiteboard action types
+## Caching and Fallback Behavior
+
+Successful AI lessons are cached in server memory for 10 minutes:
+
+- The key combines normalized topic text and difficulty
+- The cache retains at most 50 entries
+- Expired entries are removed on lookup or insertion
+- Cache hits are identified in the lesson source label
+- The cache is process-local and resets on server restart
+
+The cache is intentionally simple and is not shared across serverless instances. Use Redis or another shared cache for cross-instance persistence in production.
+
+If Groq or JSON validation fails, ChalkAI serves a topic-matched preloaded demo when one exists. This is labeled as an offline fallback. If no matching demo exists, the API returns a temporary-unavailable response instead of presenting unrelated material.
+
+---
+
+## Deployment
+
+### Vercel
+
+Import the repository and add `GROQ_API_KEY` and optional `GROQ_MODEL` environment variables in the Vercel project settings.
+
+### Render or Railway
+
+Create a Node.js web service:
+
+```bash
+npm ci
+npm run build
+npm run start
+```
+
+Use Node.js 20 or later and configure the same environment variables. Keep the Groq key server-side and note that the in-memory cache will not be shared across instances.
+
+Browser narration uses the voices installed or available in the learner's browser and operating system.
+
+---
+
+## Current Scope
+
+- Lesson feedback is stored only in the current browser session and is not sent to a backend
+- Theme preference is persisted in `localStorage`
+- The lesson cache is in-memory and process-local
+- Speech synthesis timing varies between browsers
+- Groq free-plan limits and account model access apply
